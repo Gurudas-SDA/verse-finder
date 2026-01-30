@@ -107,6 +107,33 @@
             font-size: 0.9rem;
         }
 
+        /* Status indicator */
+        .status-indicator {
+            background: var(--card-bg);
+            padding: 0.75rem 1rem;
+            border-radius: 0.5rem;
+            margin-bottom: 1rem;
+            font-size: 0.9rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #ffc107;
+        }
+
+        .status-dot.online {
+            background: #4caf50;
+        }
+
+        .status-dot.cached {
+            background: #2196f3;
+        }
+
         /* Sources grid */
         .sources-grid {
             display: grid;
@@ -255,6 +282,14 @@
             border-radius: 0.25rem;
         }
 
+        .success {
+            background: rgba(76, 175, 80, 0.1);
+            border-left: 4px solid #4caf50;
+            padding: 1rem;
+            margin-bottom: 1rem;
+            border-radius: 0.25rem;
+        }
+
         .divider {
             border: 0;
             border-top: 1px solid var(--border-color);
@@ -285,6 +320,12 @@
     <div class="container">
         <h1>Gauḍīya Vaiṣṇava Verse Finder</h1>
 
+        <!-- Status Indicator -->
+        <div class="status-indicator" id="statusIndicator">
+            <div class="status-dot" id="statusDot"></div>
+            <span id="statusText">Checking database...</span>
+        </div>
+
         <!-- Sidebar Controls -->
         <div class="sidebar">
             <div class="slider-group">
@@ -311,7 +352,7 @@
 
             <!-- Search Section -->
             <div class="search-container">
-                <textarea id="searchInput" placeholder="Enter at least 2 words of the verse - Введите минимум 2 слова стиха"></textarea>
+                <textarea id="searchInput" placeholder="Enter at least 2 words of the verse - Введите минимум 2 слова стиха - Inserisci almeno 2 parole del verso - Introduce al menos 2 palabras del verso - Entrez au moins 2 mots du verset - Gib mindestens 2 Wörter des Verses ein"></textarea>
                 <button id="searchButton">Find the verse</button>
             </div>
 
@@ -321,19 +362,76 @@
     </div>
 
     <script>
-        // Global variables
+        // ========== INDEXEDDB SETUP ==========
+        
+        const DB_NAME = 'VersesDB';
+        const DB_VERSION = 1;
+        const STORE_NAME = 'verses';
+        const DATA_URL = 'verses_data.json';
+        
+        let db = null;
         let database = [];
         let fuseIndex = null;
 
-        // ========== UTILITY FUNCTIONS (ported from Python) ==========
+        // Open IndexedDB
+        function openDatabase() {
+            return new Promise((resolve, reject) => {
+                const request = indexedDB.open(DB_NAME, DB_VERSION);
+                
+                request.onerror = () => reject(request.error);
+                request.onsuccess = () => resolve(request.result);
+                
+                request.onupgradeneeded = (event) => {
+                    const db = event.target.result;
+                    if (!db.objectStoreNames.contains(STORE_NAME)) {
+                        db.createObjectStore(STORE_NAME);
+                    }
+                };
+            });
+        }
+
+        // Save data to IndexedDB
+        function saveToIndexedDB(key, data) {
+            return new Promise((resolve, reject) => {
+                const transaction = db.transaction([STORE_NAME], 'readwrite');
+                const store = transaction.objectStore(STORE_NAME);
+                const request = store.put(data, key);
+                
+                request.onsuccess = () => resolve();
+                request.onerror = () => reject(request.error);
+            });
+        }
+
+        // Load data from IndexedDB
+        function loadFromIndexedDB(key) {
+            return new Promise((resolve, reject) => {
+                const transaction = db.transaction([STORE_NAME], 'readonly');
+                const store = transaction.objectStore(STORE_NAME);
+                const request = store.get(key);
+                
+                request.onsuccess = () => resolve(request.result);
+                request.onerror = () => reject(request.error);
+            });
+        }
+
+        // Update status indicator
+        function updateStatus(type, message) {
+            const dot = document.getElementById('statusDot');
+            const text = document.getElementById('statusText');
+            
+            dot.className = 'status-dot';
+            if (type === 'online') dot.classList.add('online');
+            if (type === 'cached') dot.classList.add('cached');
+            
+            text.textContent = message;
+        }
+
+        // ========== UTILITY FUNCTIONS (same as before) ==========
         
         function normalizeText(text) {
             if (!text) return "";
-            // Remove diacritics
             text = text.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-            // Remove spaces, hyphens, newlines
             text = text.replace(/-/g, '').replace(/\s/g, '').replace(/\n/g, '');
-            // Remove non-word characters
             text = text.replace(/[^\w]/g, '');
             return text.toLowerCase().trim();
         }
@@ -355,7 +453,6 @@
             cellText = cleanVerseText(cellText);
             const rawLines = cellText.split("\n").map(ln => cleanVerseText(ln)).filter(ln => ln);
             
-            // Check for starred lines
             const starred = rawLines
                 .filter(ln => ln.startsWith("*") && ln.endsWith("*") && ln.length >= 2)
                 .map(ln => ln.slice(1, -1).trim());
@@ -391,7 +488,7 @@
             return `<em>${text}</em>`;
         }
 
-        // ========== HIGHLIGHTING LOGIC ==========
+        // ========== HIGHLIGHTING LOGIC (same as before) ==========
         
         function findFragmentPosition(searchText, verseText) {
             const ns = normalizeText(searchText);
@@ -401,7 +498,6 @@
             const pos = nv.indexOf(ns);
             if (pos >= 0) return pos;
             
-            // Fuzzy fallback
             let bestPos = 999999;
             let bestScore = 0;
             const windowSize = ns.length;
@@ -419,7 +515,6 @@
         }
 
         function calculateSimilarity(s1, s2) {
-            // Simple Levenshtein-based similarity
             const longer = s1.length > s2.length ? s1 : s2;
             const shorter = s1.length > s2.length ? s2 : s1;
             if (longer.length === 0) return 1.0;
@@ -459,7 +554,6 @@
             let pos = normalizedFull.indexOf(normalizedSearch);
             
             if (pos < 0) {
-                // Fuzzy fallback
                 let bestPos = -1;
                 let bestScore = 0;
                 const windowSize = normalizedSearch.length;
@@ -482,7 +576,6 @@
             const startPos = Math.max(0, pos - margin);
             const endPos = Math.min(normalizedFull.length, pos + fragmentLength + margin);
             
-            // Build mapping: normalized position -> [line_idx, char_pos]
             const normToLineChar = [];
             for (let i = 0; i < lines.length; i++) {
                 for (let j = 0; j < lines[i].length; j++) {
@@ -493,7 +586,6 @@
                 }
             }
             
-            // Find matching positions in fragment
             const matchingPositions = new Set();
             for (let i = startPos; i < endPos && i < normalizedSearch.length + startPos; i++) {
                 if (i >= pos && i < pos + normalizedSearch.length) {
@@ -501,7 +593,6 @@
                 }
             }
             
-            // Determine which chars to highlight
             const charsToHighlight = new Map();
             for (const normPos of matchingPositions) {
                 if (normPos < normToLineChar.length) {
@@ -511,7 +602,6 @@
                 }
             }
             
-            // Highlight
             const resultLines = [];
             for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
                 const line = lines[lineIdx];
@@ -541,42 +631,84 @@
             return resultLines;
         }
 
-        // ========== DATA LOADING ==========
+        // ========== DATA LOADING WITH INDEXEDDB ==========
         
         async function loadDatabase() {
             try {
-                // In production, this would be loaded from a separate JSON file
-                // For now, we'll embed the data
-                const response = await fetch('verses_data.json');
-                database = await response.json();
+                // Open IndexedDB
+                db = await openDatabase();
                 
-                // Initialize Fuse.js
-                fuseIndex = new Fuse(database, {
-                    keys: ['iast_verse'],
-                    threshold: 0.7,
-                    ignoreLocation: true,
-                    includeScore: true,
-                    minMatchCharLength: 2,
-                    getFn: (obj, path) => {
-                        return normalizeText(obj.iast_verse);
+                // Try to load from IndexedDB first
+                const cachedData = await loadFromIndexedDB('verses_data');
+                
+                if (cachedData && cachedData.length > 0) {
+                    // Data found in IndexedDB - use it!
+                    database = cachedData;
+                    updateStatus('cached', '✓ Offline mode - data from device storage');
+                    console.log('✓ Loaded from IndexedDB:', database.length, 'verses');
+                    initializeApp();
+                    
+                    // Try to update in background if online
+                    if (navigator.onLine) {
+                        fetchAndUpdateDatabase();
                     }
-                });
-                
-                // Hide loading, show content
-                document.getElementById('loadingData').style.display = 'none';
-                document.getElementById('mainContent').style.display = 'block';
-                
-                // Update verse count
-                document.getElementById('versesCount').textContent = `(${database.length} verses)`;
-                
-                // Render sources
-                renderSources();
+                } else {
+                    // No cached data - must fetch
+                    updateStatus('online', 'Downloading database...');
+                    await fetchAndUpdateDatabase();
+                }
                 
             } catch (error) {
                 console.error('Error loading database:', error);
                 document.getElementById('loadingData').innerHTML = 
-                    '<div class="warning">Error loading database. Please ensure verses_data.json is in the same directory.</div>';
+                    '<div class="warning">Error loading database. Please check your connection and refresh.</div>';
             }
+        }
+
+        async function fetchAndUpdateDatabase() {
+            try {
+                const response = await fetch(DATA_URL);
+                database = await response.json();
+                
+                // Save to IndexedDB for offline use
+                await saveToIndexedDB('verses_data', database);
+                await saveToIndexedDB('last_updated', new Date().toISOString());
+                
+                updateStatus('online', '✓ Database updated - ready for offline use');
+                console.log('✓ Fetched and saved to IndexedDB:', database.length, 'verses');
+                
+                initializeApp();
+                
+            } catch (error) {
+                console.error('Error fetching database:', error);
+                if (database.length === 0) {
+                    throw error;
+                }
+            }
+        }
+
+        function initializeApp() {
+            // Initialize Fuse.js
+            fuseIndex = new Fuse(database, {
+                keys: ['iast_verse'],
+                threshold: 0.7,
+                ignoreLocation: true,
+                includeScore: true,
+                minMatchCharLength: 2,
+                getFn: (obj, path) => {
+                    return normalizeText(obj.iast_verse);
+                }
+            });
+            
+            // Hide loading, show content
+            document.getElementById('loadingData').style.display = 'none';
+            document.getElementById('mainContent').style.display = 'block';
+            
+            // Update verse count
+            document.getElementById('versesCount').textContent = `(${database.length} verses)`;
+            
+            // Render sources
+            renderSources();
         }
 
         function renderSources() {
@@ -605,7 +737,7 @@
             `;
         }
 
-        // ========== SEARCH LOGIC ==========
+        // ========== SEARCH LOGIC (same as before) ==========
         
         function searchVerses(searchText) {
             const maxResults = parseInt(document.getElementById('maxResults').value);
@@ -613,16 +745,13 @@
             
             const normalizedSearch = normalizeText(searchText);
             
-            // Use Fuse.js for fuzzy matching
             const fuseResults = fuseIndex.search(normalizedSearch);
             
-            // Process and score results
             const results = fuseResults
                 .map(result => {
                     const score = 1 - (result.score || 0);
                     const position = findFragmentPosition(searchText, result.item.iast_verse);
                     
-                    // Calculate prefix length
                     const ns = normalizeText(searchText);
                     const nv = normalizeText(result.item.iast_verse);
                     let prefixLength = 0;
@@ -722,7 +851,6 @@
             renderResults(results, searchText);
         });
 
-        // Allow Enter to search (Shift+Enter for newline)
         document.getElementById('searchInput').addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
@@ -732,13 +860,21 @@
 
         // ========== INITIALIZE ==========
         
-        // Register service worker for offline support
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('service-worker.js')
-                .then(registration => console.log('ServiceWorker registered'))
-                .catch(err => console.log('ServiceWorker registration failed:', err));
-        }
-        
+        // Listen for online/offline events
+        window.addEventListener('online', () => {
+            updateStatus('online', '✓ Online - checking for updates...');
+            if (database.length > 0) {
+                fetchAndUpdateDatabase();
+            }
+        });
+
+        window.addEventListener('offline', () => {
+            if (database.length > 0) {
+                updateStatus('cached', '✓ Offline mode - using cached data');
+            }
+        });
+
+        // Start loading
         loadDatabase();
     </script>
 </body>
