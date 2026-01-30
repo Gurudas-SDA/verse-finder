@@ -1,0 +1,745 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Verse Finder">
+    <title>Gauḍīya Vaiṣṇava Verse Finder</title>
+    
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="manifest.json">
+    
+    <!-- iOS specific -->
+    <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect fill='%23ff4b4b' width='100' height='100'/%3E%3Ctext x='50' y='50' font-size='60' text-anchor='middle' dy='.3em' fill='white' font-family='serif'%3Eॐ%3C/text%3E%3C/svg%3E">
+    
+    <!-- Fuse.js for fuzzy search -->
+    <script src="https://cdn.jsdelivr.net/npm/fuse.js@7.0.0"></script>
+    
+    <style>
+        :root {
+            --primary-color: #ff4b4b;
+            --bg-color: #0e1117;
+            --card-bg: #262730;
+            --text-color: #fafafa;
+            --text-secondary: #a9a9bc;
+            --border-color: #464754;
+            --verse-line-gap: 0.15rem;
+            --verse-block-gap: 0.6rem;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: "Source Sans Pro", sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            line-height: 1.6;
+            padding: 1rem;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+            font-weight: 600;
+        }
+
+        .sv-title {
+            font-size: 2rem;
+            font-weight: 700;
+            margin: 1.5rem 0 0.75rem 0;
+        }
+
+        .sv-title .verses {
+            font-size: 50%;
+            font-weight: 500;
+            color: var(--text-secondary);
+        }
+
+        /* Sidebar */
+        .sidebar {
+            background: var(--card-bg);
+            padding: 1.5rem;
+            border-radius: 0.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .slider-group {
+            margin-bottom: 1.5rem;
+        }
+
+        .slider-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 500;
+        }
+
+        .slider-group input[type="range"] {
+            width: 100%;
+            height: 8px;
+            border-radius: 5px;
+            background: var(--border-color);
+            outline: none;
+        }
+
+        .slider-group input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: var(--primary-color);
+            cursor: pointer;
+        }
+
+        .slider-value {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        /* Sources grid */
+        .sources-grid {
+            display: grid;
+            grid-template-columns: 1fr 12px 1fr;
+            column-gap: 8px;
+            align-items: start;
+            margin-bottom: 2rem;
+        }
+
+        .sources-grid .gap {
+            width: 12px;
+        }
+
+        .source-item {
+            margin-bottom: 0.35rem;
+            font-size: 0.95rem;
+        }
+
+        .source-item em {
+            font-style: italic;
+        }
+
+        .source-item strong {
+            font-weight: 600;
+        }
+
+        /* Search */
+        .search-container {
+            margin-bottom: 2rem;
+        }
+
+        textarea {
+            width: 100%;
+            min-height: 80px;
+            padding: 0.75rem;
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 0.5rem;
+            color: var(--text-color);
+            font-size: 1rem;
+            font-family: inherit;
+            resize: vertical;
+        }
+
+        textarea::placeholder {
+            color: var(--text-secondary);
+        }
+
+        button {
+            background: var(--primary-color);
+            color: white;
+            border: none;
+            padding: 0.65rem 2rem;
+            border-radius: 0.5rem;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            margin-top: 0.5rem;
+            transition: opacity 0.2s;
+        }
+
+        button:hover {
+            opacity: 0.9;
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* Results */
+        .results-header {
+            font-weight: 600;
+            margin-bottom: 1rem;
+        }
+
+        .result-card {
+            background: var(--card-bg);
+            padding: 1.5rem;
+            border-radius: 0.5rem;
+            margin-bottom: 1.5rem;
+            border: 1px solid var(--border-color);
+        }
+
+        .result-columns {
+            display: grid;
+            grid-template-columns: 1.2fr 1fr;
+            gap: 2rem;
+        }
+
+        .confidence {
+            font-weight: 700;
+            font-size: 1.1rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .verse-line {
+            margin: 0 0 var(--verse-line-gap) 0;
+            line-height: 1.2;
+        }
+
+        .verse-gap {
+            height: var(--verse-block-gap);
+        }
+
+        .highlight {
+            color: #dc2626;
+            font-weight: 600;
+        }
+
+        .translation-header {
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+
+        .no-translation {
+            color: #9ca3af;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 2rem;
+            color: var(--text-secondary);
+        }
+
+        .spinner {
+            border: 3px solid var(--border-color);
+            border-top: 3px solid var(--primary-color);
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 1rem;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .warning {
+            background: rgba(255, 193, 7, 0.1);
+            border-left: 4px solid #ffc107;
+            padding: 1rem;
+            margin-bottom: 1rem;
+            border-radius: 0.25rem;
+        }
+
+        .divider {
+            border: 0;
+            border-top: 1px solid var(--border-color);
+            margin: 1.5rem 0;
+        }
+
+        @media (max-width: 768px) {
+            .result-columns {
+                grid-template-columns: 1fr;
+                gap: 1.5rem;
+            }
+
+            .sources-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .sources-grid .gap {
+                display: none;
+            }
+
+            h1 {
+                font-size: 2rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Gauḍīya Vaiṣṇava Verse Finder</h1>
+
+        <!-- Sidebar Controls -->
+        <div class="sidebar">
+            <div class="slider-group">
+                <label>Max verse number: <span class="slider-value" id="maxResultsValue">20</span></label>
+                <input type="range" id="maxResults" min="5" max="50" value="20" step="5">
+            </div>
+            <div class="slider-group">
+                <label>Min similarity %: <span class="slider-value" id="minConfidenceValue">30</span></label>
+                <input type="range" id="minConfidence" min="10" max="80" value="30" step="5">
+            </div>
+        </div>
+
+        <!-- Loading indicator -->
+        <div id="loadingData" class="loading">
+            <div class="spinner"></div>
+            <div>Loading database...</div>
+        </div>
+
+        <!-- Main content (hidden until data loaded) -->
+        <div id="mainContent" style="display: none;">
+            <!-- Sources Section -->
+            <div class="sv-title">Sources <span class="verses" id="versesCount">(0 verses)</span></div>
+            <div class="sources-grid" id="sourcesList"></div>
+
+            <!-- Search Section -->
+            <div class="search-container">
+                <textarea id="searchInput" placeholder="Enter at least 2 words of the verse - Введите минимум 2 слова стиха - Inserisci almeno 2 parole del verso - Introduce al menos 2 palabras del verso - Entrez au moins 2 mots du verset - Gib mindestens 2 Wörter des Verses ein"></textarea>
+                <button id="searchButton">Find the verse</button>
+            </div>
+
+            <!-- Results Section -->
+            <div id="resultsContainer"></div>
+        </div>
+    </div>
+
+    <script>
+        // Global variables
+        let database = [];
+        let fuseIndex = null;
+
+        // ========== UTILITY FUNCTIONS (ported from Python) ==========
+        
+        function normalizeText(text) {
+            if (!text) return "";
+            // Remove diacritics
+            text = text.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+            // Remove spaces, hyphens, newlines
+            text = text.replace(/-/g, '').replace(/\s/g, '').replace(/\n/g, '');
+            // Remove non-word characters
+            text = text.replace(/[^\w]/g, '');
+            return text.toLowerCase().trim();
+        }
+
+        function normalizeForSorting(text) {
+            if (!text) return "";
+            return text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+        }
+
+        function cleanVerseText(text) {
+            if (!text) return "";
+            text = text.replace(/_x000D_/g, '').replace(/_x000A_/g, '');
+            text = text.replace(/\s*\(\d+\)\s*$/g, '');
+            return text.trim();
+        }
+
+        function getVerseLines(cellText) {
+            if (!cellText) return [];
+            cellText = cleanVerseText(cellText);
+            const rawLines = cellText.split("\n").map(ln => cleanVerseText(ln)).filter(ln => ln);
+            
+            // Check for starred lines
+            const starred = rawLines
+                .filter(ln => ln.startsWith("*") && ln.endsWith("*") && ln.length >= 2)
+                .map(ln => ln.slice(1, -1).trim());
+            
+            return starred.length > 0 ? starred : rawLines;
+        }
+
+        function cleanAuthor(author) {
+            if (!author) return "";
+            const authorStr = String(author).trim();
+            if (['nan', 'none', 'null', ''].includes(authorStr.toLowerCase())) return "";
+            return authorStr.replace(/^\s*by\s+/i, '').trim();
+        }
+
+        function formatSourceAndAuthor(source, author) {
+            const a = cleanAuthor(author);
+            if (source && a) return `${source} (by ${a})`;
+            if (source) return source;
+            if (a) return `(by ${a})`;
+            return "NOT AVAILABLE";
+        }
+
+        function renderCitedItem(text) {
+            if (!text || ['nan', 'none', 'null', ''].includes(String(text).trim().toLowerCase())) {
+                return "";
+            }
+            const parts = text.split(/\s+by\s+/i);
+            if (parts.length === 2) {
+                const title = parts[0].trim();
+                const author = parts[1].trim();
+                return `<em><strong>${title}</strong> by ${author}</em>`;
+            }
+            return `<em>${text}</em>`;
+        }
+
+        // ========== HIGHLIGHTING LOGIC ==========
+        
+        function findFragmentPosition(searchText, verseText) {
+            const ns = normalizeText(searchText);
+            const nv = normalizeText(verseText);
+            if (!ns || !nv) return 999999;
+            
+            const pos = nv.indexOf(ns);
+            if (pos >= 0) return pos;
+            
+            // Fuzzy fallback
+            let bestPos = 999999;
+            let bestScore = 0;
+            const windowSize = ns.length;
+            
+            for (let i = 0; i <= nv.length - windowSize; i++) {
+                const window = nv.substring(i, i + windowSize);
+                const score = calculateSimilarity(ns, window);
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestPos = i;
+                }
+            }
+            
+            return bestScore > 0.7 ? bestPos : 999999;
+        }
+
+        function calculateSimilarity(s1, s2) {
+            // Simple Levenshtein-based similarity
+            const longer = s1.length > s2.length ? s1 : s2;
+            const shorter = s1.length > s2.length ? s2 : s1;
+            if (longer.length === 0) return 1.0;
+            const editDistance = levenshteinDistance(longer, shorter);
+            return (longer.length - editDistance) / longer.length;
+        }
+
+        function levenshteinDistance(s1, s2) {
+            const costs = [];
+            for (let i = 0; i <= s1.length; i++) {
+                let lastValue = i;
+                for (let j = 0; j <= s2.length; j++) {
+                    if (i === 0) {
+                        costs[j] = j;
+                    } else if (j > 0) {
+                        let newValue = costs[j - 1];
+                        if (s1.charAt(i - 1) !== s2.charAt(j - 1)) {
+                            newValue = Math.min(Math.min(newValue, lastValue), costs[j]) + 1;
+                        }
+                        costs[j - 1] = lastValue;
+                        lastValue = newValue;
+                    }
+                }
+                if (i > 0) costs[s2.length] = lastValue;
+            }
+            return costs[s2.length];
+        }
+
+        function highlightVerseLines(lines, searchText, fullVerse) {
+            if (!lines || lines.length === 0 || !searchText) return lines;
+            
+            const normalizedSearch = normalizeText(searchText);
+            const normalizedFull = normalizeText(fullVerse);
+            
+            if (!normalizedSearch || !normalizedFull) return lines;
+            
+            let pos = normalizedFull.indexOf(normalizedSearch);
+            
+            if (pos < 0) {
+                // Fuzzy fallback
+                let bestPos = -1;
+                let bestScore = 0;
+                const windowSize = normalizedSearch.length;
+                
+                for (let i = 0; i <= normalizedFull.length - windowSize; i++) {
+                    const window = normalizedFull.substring(i, i + windowSize);
+                    const score = calculateSimilarity(normalizedSearch, window);
+                    if (score > bestScore) {
+                        bestScore = score;
+                        bestPos = i;
+                    }
+                }
+                
+                if (bestScore < 0.6) return lines;
+                pos = bestPos;
+            }
+            
+            const fragmentLength = normalizedSearch.length;
+            const margin = Math.floor(fragmentLength * 0.2);
+            const startPos = Math.max(0, pos - margin);
+            const endPos = Math.min(normalizedFull.length, pos + fragmentLength + margin);
+            
+            // Build mapping: normalized position -> [line_idx, char_pos]
+            const normToLineChar = [];
+            for (let i = 0; i < lines.length; i++) {
+                for (let j = 0; j < lines[i].length; j++) {
+                    const normalizedChar = normalizeText(lines[i][j]);
+                    for (let k = 0; k < normalizedChar.length; k++) {
+                        normToLineChar.push([i, j]);
+                    }
+                }
+            }
+            
+            // Find matching positions in fragment
+            const matchingPositions = new Set();
+            for (let i = startPos; i < endPos && i < normalizedSearch.length + startPos; i++) {
+                if (i >= pos && i < pos + normalizedSearch.length) {
+                    matchingPositions.add(i);
+                }
+            }
+            
+            // Determine which chars to highlight
+            const charsToHighlight = new Map();
+            for (const normPos of matchingPositions) {
+                if (normPos < normToLineChar.length) {
+                    const [lineIdx, charPos] = normToLineChar[normPos];
+                    const key = `${lineIdx},${charPos}`;
+                    charsToHighlight.set(key, true);
+                }
+            }
+            
+            // Highlight
+            const resultLines = [];
+            for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
+                const line = lines[lineIdx];
+                const highlighted = [];
+                let i = 0;
+                
+                while (i < line.length) {
+                    const key = `${lineIdx},${i}`;
+                    if (charsToHighlight.has(key)) {
+                        const start = i;
+                        while (i < line.length && charsToHighlight.has(`${lineIdx},${i}`)) {
+                            i++;
+                        }
+                        highlighted.push(`<span class="highlight">${line.substring(start, i)}</span>`);
+                    } else {
+                        const start = i;
+                        while (i < line.length && !charsToHighlight.has(`${lineIdx},${i}`)) {
+                            i++;
+                        }
+                        highlighted.push(line.substring(start, i));
+                    }
+                }
+                
+                resultLines.push(highlighted.join(''));
+            }
+            
+            return resultLines;
+        }
+
+        // ========== DATA LOADING ==========
+        
+        async function loadDatabase() {
+            try {
+                // In production, this would be loaded from a separate JSON file
+                // For now, we'll embed the data
+                const response = await fetch('verses_data.json');
+                database = await response.json();
+                
+                // Initialize Fuse.js
+                fuseIndex = new Fuse(database, {
+                    keys: ['iast_verse'],
+                    threshold: 0.7,
+                    ignoreLocation: true,
+                    includeScore: true,
+                    minMatchCharLength: 2,
+                    getFn: (obj, path) => {
+                        return normalizeText(obj.iast_verse);
+                    }
+                });
+                
+                // Hide loading, show content
+                document.getElementById('loadingData').style.display = 'none';
+                document.getElementById('mainContent').style.display = 'block';
+                
+                // Update verse count
+                document.getElementById('versesCount').textContent = `(${database.length} verses)`;
+                
+                // Render sources
+                renderSources();
+                
+            } catch (error) {
+                console.error('Error loading database:', error);
+                document.getElementById('loadingData').innerHTML = 
+                    '<div class="warning">Error loading database. Please ensure verses_data.json is in the same directory.</div>';
+            }
+        }
+
+        function renderSources() {
+            const citedSet = new Set();
+            database.forEach(d => {
+                if (d.cited_in) citedSet.add(d.cited_in);
+            });
+            
+            const citedList = Array.from(citedSet).sort((a, b) => 
+                normalizeForSorting(a).localeCompare(normalizeForSorting(b))
+            );
+            
+            if (citedList.length === 0) return;
+            
+            const half = Math.ceil(citedList.length / 2);
+            const left = citedList.slice(0, half);
+            const right = citedList.slice(half);
+            
+            const leftHtml = left.map(c => `<p class="source-item">${renderCitedItem(c)}</p>`).join('');
+            const rightHtml = right.map(c => `<p class="source-item">${renderCitedItem(c)}</p>`).join('');
+            
+            document.getElementById('sourcesList').innerHTML = `
+                <div>${leftHtml}</div>
+                <div class="gap"></div>
+                <div>${rightHtml}</div>
+            `;
+        }
+
+        // ========== SEARCH LOGIC ==========
+        
+        function searchVerses(searchText) {
+            const maxResults = parseInt(document.getElementById('maxResults').value);
+            const minConfidence = parseInt(document.getElementById('minConfidence').value) / 100;
+            
+            const normalizedSearch = normalizeText(searchText);
+            
+            // Use Fuse.js for fuzzy matching
+            const fuseResults = fuseIndex.search(normalizedSearch);
+            
+            // Process and score results
+            const results = fuseResults
+                .map(result => {
+                    const score = 1 - (result.score || 0);
+                    const position = findFragmentPosition(searchText, result.item.iast_verse);
+                    
+                    // Calculate prefix length
+                    const ns = normalizeText(searchText);
+                    const nv = normalizeText(result.item.iast_verse);
+                    let prefixLength = 0;
+                    for (let i = 0; i < Math.min(ns.length, nv.length); i++) {
+                        if (ns[i] === nv[i]) prefixLength++;
+                        else break;
+                    }
+                    
+                    return {
+                        verse_data: result.item,
+                        confidence: score,
+                        score_percent: score * 100,
+                        position: position,
+                        prefix_length: prefixLength
+                    };
+                })
+                .filter(r => r.confidence >= minConfidence)
+                .sort((a, b) => {
+                    if (a.confidence !== b.confidence) return b.confidence - a.confidence;
+                    if (a.prefix_length !== b.prefix_length) return b.prefix_length - a.prefix_length;
+                    return a.position - b.position;
+                })
+                .slice(0, maxResults);
+            
+            return results;
+        }
+
+        function renderResults(results, searchText) {
+            const container = document.getElementById('resultsContainer');
+            
+            if (results.length === 0) {
+                container.innerHTML = '<p>No results</p>';
+                return;
+            }
+            
+            let html = `<p class="results-header"><b>RESULTS:</b> '${searchText}' | Found: ${results.length}</p><hr class="divider">`;
+            
+            results.forEach(result => {
+                const verseData = result.verse_data;
+                const score = result.score_percent;
+                
+                const lines = getVerseLines(verseData.iast_verse);
+                const highlightedLines = highlightVerseLines(lines, searchText, verseData.iast_verse);
+                
+                const verseLinesHtml = highlightedLines.length > 0
+                    ? highlightedLines.map(ln => `<p class="verse-line">${ln}</p>`).join('')
+                    : `<p class="verse-line">${verseData.iast_verse}</p>`;
+                
+                const sourceAuthor = formatSourceAndAuthor(verseData.original_source, verseData.author);
+                const citedHtml = verseData.cited_in ? renderCitedItem(verseData.cited_in) : '';
+                
+                const translationHtml = verseData.english_translation
+                    ? `<p>${verseData.english_translation}</p>`
+                    : '<p class="no-translation">No translation available</p>';
+                
+                html += `
+                    <div class="result-card">
+                        <div class="result-columns">
+                            <div>
+                                <p class="confidence"><b>${score.toFixed(0)}%</b></p>
+                                ${verseLinesHtml}
+                                <div class="verse-gap"></div>
+                                <p>${sourceAuthor}</p>
+                                ${citedHtml ? `<p>${citedHtml}</p>` : ''}
+                            </div>
+                            <div>
+                                <p class="translation-header"><b>Translation</b></p>
+                                ${translationHtml}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            container.innerHTML = html;
+        }
+
+        // ========== EVENT HANDLERS ==========
+        
+        document.getElementById('maxResults').addEventListener('input', (e) => {
+            document.getElementById('maxResultsValue').textContent = e.target.value;
+        });
+
+        document.getElementById('minConfidence').addEventListener('input', (e) => {
+            document.getElementById('minConfidenceValue').textContent = e.target.value;
+        });
+
+        document.getElementById('searchButton').addEventListener('click', () => {
+            const searchText = document.getElementById('searchInput').value.trim();
+            
+            if (!searchText) {
+                alert('Ierakstiet tekstu!');
+                return;
+            }
+            
+            const results = searchVerses(searchText);
+            renderResults(results, searchText);
+        });
+
+        // Allow Enter to search (Shift+Enter for newline)
+        document.getElementById('searchInput').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                document.getElementById('searchButton').click();
+            }
+        });
+
+        // ========== INITIALIZE ==========
+        
+        // Register service worker for offline support
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('service-worker.js')
+                .then(registration => console.log('ServiceWorker registered'))
+                .catch(err => console.log('ServiceWorker registration failed:', err));
+        }
+        
+        loadDatabase();
+    </script>
+</body>
+</html>
