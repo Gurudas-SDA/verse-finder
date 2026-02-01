@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <title>Verse Finder</title>
+    
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, sans-serif;
+            background: #fff;
+            color: #000;
+            padding: 1rem;
+            line-height: 1.6;
+        }
+        .container { max-width: 1200px; margin: 0 auto; }
+        h1 { font-size: 2rem; margin-bottom: 1rem; }
+        .status {
+            background: #e8f5e9;
+            padding: 0.75rem;
+            border-radius: 0.5rem;
+            margin-bottom: 1rem;
+            border-left: 4px solid #4caf50;
+        }
+        .controls {
+            background: #f5f5f5;
+            padding: 1.5rem;
+            border-radius: 0.5rem;
+            margin-bottom: 1.5rem;
+        }
+        .slider-group { margin-bottom: 1rem; }
+        .slider-group label { display: block; margin-bottom: 0.5rem; font-weight: 500; }
+        input[type="range"] { width: 100%; }
+        textarea {
+            width: 100%;
+            min-height: 80px;
+            padding: 0.75rem;
+            background: #f5f5f5;
+            border: 1px solid #ccc;
+            border-radius: 0.5rem;
+            font-size: 1rem;
+            font-family: inherit;
+        }
+        button {
+            background: #ff4b4b;
+            color: white;
+            border: none;
+            padding: 0.75rem 2rem;
+            border-radius: 0.5rem;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            margin-top: 0.5rem;
+        }
+        .result-card {
+            background: #f5f5f5;
+            padding: 1.5rem;
+            border-radius: 0.5rem;
+            margin-bottom: 1.5rem;
+        }
+        .result-columns {
+            display: grid;
+            grid-template-columns: 1.2fr 1fr;
+            gap: 2rem;
+        }
+        .confidence { font-weight: 700; font-size: 1.1rem; color: #4caf50; margin-bottom: 0.5rem; }
+        .verse-line { margin-bottom: 0.25rem; }
+        .highlight { background: #fff59d; padding: 0 2px; font-weight: 600; }
+        @media (max-width: 768px) {
+            .result-columns { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Verse Finder</h1>
+        
+        <div class="status">
+            ✓ Loaded <strong id="verseCount">0</strong> verses - 100% offline
+        </div>
+        
+        <div class="controls">
+            <div class="slider-group">
+                <label>Max results: <span id="maxValue">20</span></label>
+                <input type="range" id="maxResults" min="5" max="50" value="20" step="5">
+            </div>
+            <div class="slider-group">
+                <label>Min similarity %: <span id="minValue">30</span></label>
+                <input type="range" id="minConfidence" min="10" max="80" value="30" step="5">
+            </div>
+        </div>
+        
+        <div>
+            <textarea id="searchInput" placeholder="Enter verse text..."></textarea>
+            <button id="searchBtn">Find the verse</button>
+        </div>
+        
+        <div id="results"></div>
+    </div>
+
+    <script>
+        // DATABASE
+        const DATABASE = [
+  {
+    "iast_verse": "(oṁ) ajïāna-timirāndhasya jïānānjana-śalākayā\ncakṣur unmīlitaṁ yena tasmai śrī-gurave namaḥ",
+    "original_source": "Śrī Prema-bhakti-candrikā, Śrīla Narottama dāsa Ṭhākura",
+    "author": "",
+    "english_translation": "I was blinded by the darkness of ignorance but Śrī Gurudev has anointed my eyes with spiritual knowledge and gave me divine vision. I offer my respectful obeisances unto him.",
+    "cited_in": "An Anthology of Verses by Dau Dayal (Dauji) Das"
+  },
+  {
+    "iast_verse": "yasya prasādād bhagavat-prasādo\nyasyāprasādān na gatiḥ kuto ’pi",
+    "original_source": "Śrī Gurvaṣṭakam 8, Śrīla Viśvanātha Cakravartī Ṭhākura",
+    "author": "",
+    "english_translation": "By the mercy of the Śrī Guru one receives the mercy of Śrī Kṛṣṇa. Without the grace of Śrī Guru, one cannot attain the goal of spiritual perfection.",
+    "cited_in": "An Anthology of Verses by Dau Dayal (Dauji) Das"
+  }
+];
+        
+        // Initialize
+        document.getElementById('verseCount').textContent = DATABASE.length;
+        console.log('Loaded', DATABASE.length, 'verses');
+        console.log('First verse:', DATABASE[0]);
+        
+        // Normalize function
+        function normalize(text) {
+            if (!text) return "";
+            return text.normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .replace(/[^a-z0-9]/gi, '')
+                .toLowerCase();
+        }
+        
+        // Simple search
+        function search(query) {
+            const normQuery = normalize(query);
+            const results = [];
+            
+            DATABASE.forEach(verse => {
+                const normVerse = normalize(verse.iast_verse);
+                if (normVerse.includes(normQuery)) {
+                    results.push({
+                        verse: verse,
+                        score: 1.0
+                    });
+                }
+            });
+            
+            return results;
+        }
+        
+        // Render results
+        function renderResults(results, query) {
+            const container = document.getElementById('results');
+            
+            if (results.length === 0) {
+                container.innerHTML = '<p>No results found.</p>';
+                return;
+            }
+            
+            let html = '<p><strong>Found ' + results.length + ' results</strong></p><hr style="margin: 1rem 0;">';
+            
+            results.forEach(r => {
+                const verse = r.verse;
+                const lines = verse.iast_verse.split('\n');
+                const linesHtml = lines.map(l => '<p class="verse-line">' + l + '</p>').join('');
+                
+                html += '<div class="result-card">';
+                html += '<div class="result-columns">';
+                html += '<div>';
+                html += '<div class="confidence">100%</div>';
+                html += linesHtml;
+                html += '<p style="margin-top:0.5rem"><strong>' + (verse.original_source || 'Unknown') + '</strong></p>';
+                html += '</div>';
+                html += '<div>';
+                html += '<p><strong>Translation</strong></p>';
+                html += '<p>' + (verse.english_translation || 'N/A') + '</p>';
+                html += '</div>';
+                html += '</div>';
+                html += '</div>';
+            });
+            
+            container.innerHTML = html;
+        }
+        
+        // Event listeners
+        document.getElementById('maxResults').addEventListener('input', e => {
+            document.getElementById('maxValue').textContent = e.target.value;
+        });
+        
+        document.getElementById('minConfidence').addEventListener('input', e => {
+            document.getElementById('minValue').textContent = e.target.value;
+        });
+        
+        document.getElementById('searchBtn').addEventListener('click', () => {
+            const query = document.getElementById('searchInput').value.trim();
+            if (!query) {
+                alert('Enter search text');
+                return;
+            }
+            const results = search(query);
+            renderResults(results, query);
+        });
+        
+        document.getElementById('searchInput').addEventListener('keydown', e => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                document.getElementById('searchBtn').click();
+            }
+        });
+    </script>
+</body>
+</html>
